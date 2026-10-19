@@ -9,10 +9,47 @@ import { useCarga } from "../../hooks/useCarga";
 import { fechaHora, numero } from "../../lib/formatos";
 import { TTL_CORTO } from "../../lib/offline/cacheLectura";
 import { calcularDfis } from "../../lib/nutricion";
+import { ApiError } from "../../services/http";
 import { operativoApi } from "../../services/operativo";
 import type { ItemGuia, TransicionFsm } from "../../types/operativo";
 import { FsmTimeline } from "./FsmTimeline";
 import { GuiaQrCard } from "./GuiaQrCard";
+
+function AsignarTransportista({ guiaId, actual, alCambiar }: { guiaId: number; actual: number | null; alCambiar: () => void }) {
+  const transportistas = useCarga("transportistas", () => operativoApi.listarTransportistas(), TTL_CORTO, []);
+  const [elegido, setElegido] = useState<string>(actual ? String(actual) : "");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    setGuardando(true);
+    setError(null);
+    try {
+      await operativoApi.asignarTransportista(guiaId, Number(elegido));
+      alCambiar();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "No pudimos asignar el transportista.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <section className="card flex flex-col gap-2" aria-label="Transportista">
+      <label className="label-field" htmlFor="asignar-transp">{actual ? "Cambiar transportista" : "Asignar transportista"}</label>
+      <div className="flex flex-wrap gap-2">
+        <select id="asignar-transp" className="input-field max-w-xs" value={elegido} onChange={(e) => setElegido(e.target.value)}>
+          <option value="">Selecciona…</option>
+          {transportistas.datos?.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+        </select>
+        <button type="button" className="btn-secondary" disabled={guardando || !elegido || Number(elegido) === actual || !navigator.onLine} onClick={guardar}>
+          {guardando ? "Guardando…" : "Guardar"}
+        </button>
+      </div>
+      {error && <p role="alert" className="text-sm font-medium text-danger">{error}</p>}
+    </section>
+  );
+}
 
 function BadgeDfis({ pct }: { pct: number | null }) {
   if (pct === null) return <span className="text-muted">Sin recepción</span>;
@@ -41,6 +78,10 @@ export default function GuiaDetallePage() {
       </div>
       <DatosAl fecha={g.deCache} />
       <p className="text-ink">{guia.olla_nombre} · Transportista: {guia.transportista_nombre ?? "sin asignar"} · Emitida {fechaHora(guia.fecha_generacion)}</p>
+
+      {rol === "ALMACENERO" && (guia.estado_fsm === "PROGRAMADO" || guia.estado_fsm === "DESPACHADO") && (
+        <AsignarTransportista key={guia.transportista_id ?? 0} guiaId={guia.id} actual={guia.transportista_id} alCambiar={g.recargar} />
+      )}
 
       <section className="card" aria-label="Cadena de custodia">
         <FsmTimeline estado={guia.estado_fsm} transiciones={guia.transiciones} />

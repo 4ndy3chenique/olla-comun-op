@@ -40,14 +40,18 @@ Decisiones de diseño: el transportista solo ve sus guías (404 en las ajenas); 
 5. **Desplegar la API**: `cd endpoints; .\scripts\deploy-api.ps1` y luego `.\scripts\verificar-api.ps1`. Probar a mano con una cuenta operativa: login con `plataforma: "operativa"`, `GET /api/operativo/guias`, y emitir/escanear una guía.
 6. En GitHub de la web operativa: variable `VITE_OPERATIVO_MODO=real` y volver a ejecutar el workflow.
 
+## Añadido después
+
+- `PUT /api/operativo/guias/{id}/transportista` (ALMACENERO): asigna o cambia el transportista mientras la guía esté PROGRAMADO o DESPACHADO; queda en bitácora. Selector en el detalle de guía.
+- `GET /api/operativo/guias?sin_liquidar=true`: guías recepcionadas sin liquidar. La vista Liquidación tiene el panel "Por liquidar" con botón (usa `POST .../liquidar`).
+- Límite de peticiones por IP en todas las rutas operativas: `RATE_LIMIT_OPERATIVO` (240/min por defecto).
+- Estas piezas tampoco se probaron contra MySQL real.
+
 ## Pendiente (no incluido)
 
-- **Pantalla para liquidar guías.** El endpoint `POST /operativo/guias/{id}/liquidar` existe, pero la web no tiene botón: la vista Liquidación estará vacía hasta que alguien liquide guías (por API o agregando el botón al auditor).
-- **Asignar o cambiar transportista** de una guía ya emitida (hoy solo se asigna al emitir).
-- **Anular una guía** o corregir ítems tras emitirla.
-- **Alta de operadores desde la web** (hoy solo por consola).
-- **Rate limiting** en los endpoints operativos (solo lo tienen login y RENIEC).
+- **Anular una guía** o corregir ítems tras emitirla: exige un estado nuevo en el ENUM `estado_fsm` y revisar KPIs; decisión de negocio.
+- **Alta de operadores desde la web** (hoy solo por consola con `crear-operador.php`).
 - **Metas de P_cal y E_ins** (`VITE_META_PCAL`, `VITE_META_EINS`): siguen sin definirse en ningún documento.
-- **Vida del token**: 12 h vigentes frente a los 15 min de la especificación; requiere un endpoint de refresh (`SOPORTA_REFRESH` en `src/lib/sesion.ts`).
-- **Pruebas automatizadas** del backend (no hay suite; la verificación hecha fue manual).
-- Rotar la contraseña de `OC_2026` (pendiente desde `TRASPASO.md`) antes de producción real.
+- **Vida del token**: 12 h frente a los 15 min de la especificación; requiere un endpoint de refresh (`SOPORTA_REFRESH` en `src/lib/sesion.ts`).
+- **Pruebas automatizadas** del backend.
+- Rotar la contraseña de `OC_2026` antes de producción real.

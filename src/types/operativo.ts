@@ -37,6 +37,7 @@ export interface GuiaResumen {
   estado_fsm: EstadoFsm;
   num_items: number;
   fecha_generacion: string;
+  fecha_liquidacion?: string | null;
   pendiente_sincronizar?: boolean;
 }
 
@@ -50,7 +51,7 @@ export interface GuiaDetalle extends GuiaResumen {
   transiciones: TransicionFsm[];
 }
 
-export interface FiltroGuias { estado?: EstadoFsm; olla_id?: number; transportista_id?: number; desde?: string; hasta?: string }
+export interface FiltroGuias { sin_liquidar?: boolean; estado?: EstadoFsm; olla_id?: number; transportista_id?: number; desde?: string; hasta?: string }
 
 export interface EmitirGuiaInput {
   uuid: string;

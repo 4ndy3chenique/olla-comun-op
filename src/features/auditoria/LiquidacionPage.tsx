@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CargandoVista, ErrorConReintento } from "../../components/ui/Estados";
 import { DatosAl } from "../../components/ui/DatosAl";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -9,7 +10,8 @@ import { useFiltrosUrl } from "../../hooks/usePaginacion";
 import { fechaHora, horasEntre, numero } from "../../lib/formatos";
 import { TTL_CORTO, TTL_LARGO } from "../../lib/offline/cacheLectura";
 import { operativoApi } from "../../services/operativo";
-import type { Liquidacion } from "../../types/operativo";
+import { ApiError } from "../../services/http";
+import type { GuiaResumen, Liquidacion } from "../../types/operativo";
 
 function Dfis({ pct }: { pct: number }) {
   const tono = pct > 10 ? "peligro" : pct > 5 ? "alerta" : "exito";
@@ -18,6 +20,50 @@ function Dfis({ pct }: { pct: number }) {
 }
 
 const tLiq = (l: Liquidacion) => (l.fecha_recepcion ? horasEntre(l.fecha_recepcion, l.fecha_liquidacion) : null);
+
+function PorLiquidar({ alLiquidar }: { alLiquidar: () => void }) {
+  const pend = useCarga("liq:pendientes", () => operativoApi.listarGuias({ sin_liquidar: true, page: 1, per_page: 50 }), TTL_CORTO, []);
+  const [liquidando, setLiquidando] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const items = pend.datos?.items ?? [];
+
+  async function liquidar(g: GuiaResumen) {
+    setLiquidando(g.id);
+    setError(null);
+    try {
+      await operativoApi.liquidarGuia(g.id);
+      pend.recargar();
+      alLiquidar();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "No pudimos liquidar la guía.");
+    } finally {
+      setLiquidando(null);
+    }
+  }
+
+  if (pend.datos && items.length === 0) return null;
+  return (
+    <section className="card flex flex-col gap-3" aria-label="Guías por liquidar">
+      <div>
+        <h2 className="text-lg font-semibold">Por liquidar</h2>
+        <p className="text-sm text-muted">Guías ya recepcionadas. Al liquidar se cierra la guía y se registra t_liq en la bitácora.</p>
+      </div>
+      {pend.cargando && !pend.datos && <CargandoVista filas={2} />}
+      {pend.error && !pend.datos && <ErrorConReintento mensaje={pend.error} onReintentar={pend.recargar} />}
+      {error && <p role="alert" className="text-sm font-medium text-danger">{error}</p>}
+      <ul className="flex flex-col gap-2">
+        {items.map((g) => (
+          <li key={g.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
+            <span className="text-sm"><strong>Guía #{g.id}</strong> · {g.olla_nombre} · {g.num_items} ítems · emitida {fechaHora(g.fecha_generacion)}</span>
+            <button type="button" className="btn-primary" disabled={liquidando !== null || !navigator.onLine} onClick={() => liquidar(g)}>
+              {liquidando === g.id ? "Liquidando…" : "Liquidar"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 export default function LiquidacionPage() {
   const f = useFiltrosUrl(25);
@@ -39,6 +85,8 @@ export default function LiquidacionPage() {
         <h1 className="text-2xl font-semibold">Liquidación de guías</h1>
         <p className="text-sm text-muted">Guías cerradas: tiempo de liquidación (t_liq) y diferencia física (D_fis).</p>
       </div>
+
+      <PorLiquidar alLiquidar={lista.recargar} />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="card"><p className="text-sm text-muted">Guías liquidadas</p><p className="text-2xl font-semibold">{lista.datos?.total ?? "—"}</p></div>

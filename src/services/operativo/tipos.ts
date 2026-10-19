@@ -22,6 +22,8 @@ export interface OperativoApi {
   emitirGuia(b: EmitirGuiaInput): Promise<GuiaDetalle>; // idempotente por b.uuid
   transicionarGuia(id: number, b: { uuid: string; estado_destino: EstadoFsm }): Promise<GuiaDetalle>;
   regenerarQr(id: number): Promise<{ token_qr: string; expira_en: string }>;
+  asignarTransportista(id: number, transportistaId: number): Promise<GuiaDetalle>;
+  liquidarGuia(id: number): Promise<GuiaDetalle>; // auditor/administrador; idempotente
   // Menú y nutrición
   obtenerMenuSemanal(p: { olla_id: number; semana: string }): Promise<MenuSemanal>;
   // Transporte

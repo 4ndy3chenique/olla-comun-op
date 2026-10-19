@@ -84,6 +84,7 @@ const guias: GuiaDetalle[] = [
 const resumen = (g: GuiaDetalle): GuiaResumen => ({
   id: g.id, olla_id: g.olla_id, olla_nombre: g.olla_nombre, transportista_id: g.transportista_id,
   transportista_nombre: g.transportista_nombre, estado_fsm: g.estado_fsm, num_items: g.items.length, fecha_generacion: g.fecha_generacion,
+  fecha_liquidacion: g.fecha_liquidacion,
 });
 
 function paginar<T>(todos: T[], page: number, per_page: number): Pagina<T> {
@@ -101,8 +102,7 @@ function aplicarTransicion(g: GuiaDetalle, destino: EstadoFsm) {
   const ahora = new Date().toISOString();
   if (destino === "DESPACHADO") g.fecha_despacho = ahora;
   if (destino === "RECEPCIONADO") {
-    g.fecha_recepcion = ahora;
-    g.fecha_liquidacion = ahora;
+    g.fecha_recepcion = ahora; // la liquidación la hace el auditor (liquidarGuia)
   }
 }
 
@@ -202,6 +202,7 @@ export const apiDemo: OperativoApi = {
     const f = guias.filter((g) =>
       (!p.estado || g.estado_fsm === p.estado) && (!p.olla_id || g.olla_id === p.olla_id) &&
       (!p.transportista_id || g.transportista_id === p.transportista_id) &&
+      (!p.sin_liquidar || (g.estado_fsm === "RECEPCIONADO" && !g.fecha_liquidacion)) &&
       (!p.desde || g.fecha_generacion >= p.desde) && (!p.hasta || g.fecha_generacion <= p.hasta + "T23:59:59"));
     return paginar(f.map(resumen), p.page, p.per_page);
   },
@@ -217,6 +218,25 @@ export const apiDemo: OperativoApi = {
     const g = guias.find((x) => x.id === id);
     if (!g) throw new ApiError("La guía no existe.", 404);
     if (g.estado_fsm !== b.estado_destino) aplicarTransicion(g, b.estado_destino); // reenvío con mismo uuid = no-op
+    return structuredClone(g);
+  },
+  async asignarTransportista(id, transportistaId) {
+    await red();
+    const g = guias.find((x) => x.id === id);
+    if (!g) throw new ApiError("La guía no existe.", 404);
+    if (g.estado_fsm !== "PROGRAMADO" && g.estado_fsm !== "DESPACHADO") throw new ApiError("Solo se puede cambiar el transportista antes de que la guía salga en tránsito.", 409);
+    const t = TRANSPORTISTAS.find((x) => x.id === transportistaId);
+    if (!t) throw new ApiError("El transportista no existe o no está activo.", 422);
+    g.transportista_id = t.id;
+    g.transportista_nombre = t.nombre;
+    return structuredClone(g);
+  },
+  async liquidarGuia(id) {
+    await red();
+    const g = guias.find((x) => x.id === id);
+    if (!g) throw new ApiError("La guía no existe.", 404);
+    if (g.estado_fsm !== "RECEPCIONADO") throw new ApiError("Solo se liquidan guías ya recepcionadas.", 409);
+    g.fecha_liquidacion ??= new Date().toISOString();
     return structuredClone(g);
   },
   async regenerarQr(id) {
