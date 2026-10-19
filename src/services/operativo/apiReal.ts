@@ -1,7 +1,6 @@
 /**
- * Implementación contra el CONTRATO OBJETIVO (Anexo A): PROPUESTO — NO DESPLEGADO.
- * Hoy la API no expone ninguna de estas rutas; solo debe usarse con VITE_OPERATIVO_MODO=real cuando el
- * backend las implemente.
+ * Implementación contra la API operativa real (Anexo A). Desplegada en producción el 19-oct-2026:
+ * requiere login con `plataforma: "operativa"` y una cuenta operativa activa (ver docs/BACKEND_PENDIENTE.md).
  */
 import { http, qs } from "../http";
 import type { OperativoApi } from "./tipos";

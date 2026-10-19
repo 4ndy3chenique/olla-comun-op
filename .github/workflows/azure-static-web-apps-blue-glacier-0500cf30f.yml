@@ -31,7 +31,7 @@ jobs:
       - name: Compilar web
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://api-ollas-prod-fhezb8atcxgmbrfa.eastus-01.azurewebsites.net/api' }}
-          VITE_OPERATIVO_MODO: ${{ vars.VITE_OPERATIVO_MODO || 'demo' }}
+          VITE_OPERATIVO_MODO: ${{ vars.VITE_OPERATIVO_MODO || 'real' }}
           VITE_META_PCAL: ${{ vars.VITE_META_PCAL }}
           VITE_META_EINS: ${{ vars.VITE_META_EINS }}
         run: npm run build

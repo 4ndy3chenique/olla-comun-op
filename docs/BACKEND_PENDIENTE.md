@@ -1,6 +1,10 @@
 # Backend de la Plataforma Operativa: estado y pasos para activarlo
 
-El código del backend ya está escrito en `endpoints/` y la migración en `bd/`. **Nada se ha desplegado ni aplicado a la base de producción.** Este documento dice qué hay, qué falta hacer y qué no se pudo probar.
+El código del backend ya está escrito en `endpoints/` y la migración en `bd/`.
+
+> **Actualización (19-oct-2026): plan ejecutado en producción.** Migración `5_operativo.sql` al día + `7_produccion.sql` (índices) aplicada; operadores ALMACENERO/TRANSPORTISTA/AUDITOR creados; semilla 6 completa (ollas, beneficiarios, menús y gramajes); API desplegada y verificada 10/10; web operativa publicada en modo `real`. Flujo E2E probado contra la API productiva: emitir → despachar → tránsito → recepción, con bitácora y padrón.
+
+Este documento conserva el plan original: qué hay, qué faltaba hacer y qué no se pudo probar.
 
 ## Qué se implementó
 

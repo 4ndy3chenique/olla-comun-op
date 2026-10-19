@@ -7,7 +7,7 @@ Aplicación web (PWA offline-first) para **Almacenero**, **Transportista** y **A
 | `VITE_OPERATIVO_MODO` | Qué hace |
 |---|---|
 | `demo` (por defecto) | Datos simulados en memoria, con banner "MODO DEMO". Accesos rápidos por rol, sin contactar la API. Permite probar toda la UI y la cola offline. |
-| `real` | Login real (`POST /auth/login`) y endpoints operativos del contrato objetivo (ver `docs/BACKEND_PENDIENTE.md`). **Hoy la API no los tiene**, así que no usar en producción todavía. |
+| `real` | Login real (`POST /auth/login`) y endpoints operativos del Anexo A, **ya desplegados en producción**. Es el modo con el que está publicada la web operativa (ver `docs/BACKEND_PENDIENTE.md`). |
 
 ## Desarrollo
 
@@ -35,7 +35,7 @@ El workflow está en `.github/workflows/azure-static-web-apps-blue-glacier-0500c
 3. **GitHub → Settings → Secrets and variables → Actions**:
    - Secret `AZURE_STATIC_WEB_APPS_API_TOKEN_BLUE_GLACIER_0500CF30F`: ya lo creó Azure al vincular el repositorio.
    - Variable `VITE_API_BASE_URL` (opcional): si falta, el workflow usa `https://api-ollas-prod-fhezb8atcxgmbrfa.eastus-01.azurewebsites.net/api`.
-   - Variable `VITE_OPERATIVO_MODO` = `demo` (o `real` cuando el backend esté listo). Opcionales: `VITE_META_PCAL`, `VITE_META_EINS`.
+   - Variable `VITE_OPERATIVO_MODO` = `demo` o `real` (la API ya está lista; el workflow despliega en `real`). Opcionales: `VITE_META_PCAL`, `VITE_META_EINS`.
 4. **CORS de la API** (obligatorio para modo `real`): `CORS_ORIGIN` solo acepta coincidencias exactas. Añadir el origen de esta app, **separado por comas** junto al de la web del solicitante:
    ```
    CORS_ORIGIN=https://thankful-ocean-08840ec0f.1.azurestaticapps.net,https://<hostname-de-esta-app>.azurestaticapps.net
