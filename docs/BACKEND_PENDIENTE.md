@@ -1,83 +1,53 @@
-# Lo que falta en backend y base de datos para pasar de `demo` a `real`
+# Backend de la Plataforma Operativa: estado y pasos para activarlo
 
-Verificado contra `endpoints/src/rutas.php`, `Sesion.php`, `Cuentas.php` y `bd/1.sql`. **Nada de esto está hecho**; esta app no modifica `endpoints/` ni `bd/`.
+El código del backend ya está escrito en `endpoints/` y la migración en `bd/`. **Nada se ha desplegado ni aplicado a la base de producción.** Este documento dice qué hay, qué falta hacer y qué no se pudo probar.
 
-## 1. Cambios en endpoints existentes (PHP)
+## Qué se implementó
 
-| Archivo | Problema actual | Cambio necesario |
-|---|---|---|
-| `src/Dominio/Cuentas.php` → `autenticar()` | Devuelve **403** si `rol_nombre !== 'SOLICITANTE_DIRIGENTE'`. Ningún rol operativo puede iniciar sesión. | Permitir `ALMACENERO`, `TRANSPORTISTA`, `AUDITOR`, `ADMINISTRADOR` (el 403 de "plataforma del solicitante" debe pasar a las rutas del solicitante, no al login). |
-| `src/Dominio/Sesion.php` → `exigirDirigente()` | Solo existe middleware para el dirigente. | Añadir `exigirRol(string ...$roles)` y usarlo en las rutas nuevas. |
-| `src/Nucleo/Respuesta.php` / App Setting `CORS_ORIGIN` | Solo orígenes exactos listados. | Agregar el hostname de esta app (lista separada por comas). Sin esto el navegador bloquea las llamadas. |
-| Cabecera `Idempotency-Key` | CORS no la anuncia. | Añadirla a `Access-Control-Allow-Headers`. |
-| (Opcional) `POST /api/auth/refresh` | Token opaco de 12 h, sin refresh. La especificación habla de JWT de 15 min. | Si se adopta vida corta, crear refresh y poner `SOPORTA_REFRESH = true` en `src/lib/sesion.ts`. La app ya conserva la cola ante 401. |
+| Pieza | Archivos |
+|---|---|
+| 16 rutas `/api/operativo/*` (contrato exacto que consume `src/services/operativo/apiReal.ts`) | `endpoints/src/rutas.php`, `Controladores/{Guia,Escaneo,Consulta}Controlador.php`, `Dominio/{Guias,Escaneos,Sincronizacion,Consultas,Dispositivos,QrToken,Bitacora}.php`, `Nucleo/Paginacion.php` |
+| Login de roles operativos (`"plataforma": "operativa"`); sin ese campo el login sigue siendo solo del dirigente | `Cuentas.php`, `CuentaControlador.php` |
+| Middleware por rol (`Sesion::exigirRol`) | `Sesion.php` |
+| CORS permite `Idempotency-Key`; `Peticion::consulta()` para la query string | `Respuesta.php`, `Peticion.php` |
+| Migración de BD (uuid, nonce, contrafirma, dispositivos, índices) | `bd/5_operativo.sql` |
+| Datos de prueba (3 ollas APTA, beneficiarios, menú de la semana) | `bd/6_semilla_operativo.sql` |
+| Alta de operadores por consola (no hay endpoint de alta) | `endpoints/scripts/crear-operador.php` |
+| `CORS_ORIGIN` ampliable y `QR_TTL_MINUTOS` | `endpoints/scripts/set-azure-env.ps1` (`-OrigenesExtra`), `.env.example` |
 
-## 2. Endpoints nuevos (contrato que consume `apiReal.ts`)
+Decisiones de diseño: el transportista solo ve sus guías (404 en las ajenas); el `token_qr` solo se entrega al almacenero; `firma_valida` de la bitácora se recalcula en el servidor; la vigencia del QR se mide a la hora del escaneo en el dispositivo (permite sincronizar horas después); la clave de dispositivo queda ligada al primer usuario que firma con ella.
 
-Prefijo `/api`, `Authorization: Bearer`, errores `{mensaje, errores?}`, escrituras idempotentes por `uuid` (campo y cabecera `Idempotency-Key`).
+## Qué se probó y qué no
 
-| Método | Ruta | Roles | Notas |
-|---|---|---|---|
-| GET | `/operativo/ollas?apta=true` | ALMACENERO, AUDITOR | `ollas_comunes` con `estado_aprobacion='APTA'` |
-| GET | `/operativo/transportistas` | ALMACENERO | usuarios con rol TRANSPORTISTA (`{id, nombre}`) — *añadido por la UI* |
-| GET | `/operativo/guias?estado&olla_id&transportista_id&desde&hasta&page&per_page` | ALMACENERO, AUDITOR | TRANSPORTISTA solo ve las suyas |
-| GET | `/operativo/guias/{id}` | idem | incluye `items`, `transiciones` (con `usuario_nombre`), `token_qr` |
-| POST | `/operativo/guias` | ALMACENERO | `{uuid, olla_id, transportista_id?, items[], observaciones?}`; crea en `PROGRAMADO`, genera `token_qr` firmado (HMAC con `HMAC_SECRET`), crea `rutas_transportista` si hay transportista, registra en `bitacora_auditoria` |
-| POST | `/operativo/guias/{id}/transiciones` | según transición | `{uuid, estado_destino}`; 409 si salta o retrocede el FSM; registra en `transiciones_fsm` |
-| POST | `/operativo/guias/{id}/qr` | ALMACENERO | regenera token (nuevo nonce y expiración) |
-| GET | `/operativo/rutas/mias` | TRANSPORTISTA | `[{ruta_id, estado_ruta, guia, olla}]` |
-| POST | `/operativo/escaneos` | TRANSPORTISTA, ALMACENERO | `{uuid, guia_id, token_qr, tipo_escaneo, escaneado_en, tiempo_escaneo_ms, items_recepcionados?, contrafirma, clave_publica}` → `{resultado: VALIDO|INVALIDO_FIRMA|EXPIRADO|NONCE_REPETIDO}`. **Verifica el HMAC del token**, expiración y nonce, y la contrafirma ECDSA. `SALIDA_ALMACEN` avanza el FSM (PROGRAMADO→DESPACHADO o DESPACHADO→EN_TRANSITO) y `RECEPCION` registra cantidades y pasa EN_TRANSITO→RECEPCIONADO |
-| POST | `/operativo/sincronizacion` | operativos | `{operaciones:[{uuid,tipo,payload,creado_en}]}` → `[{uuid, estado: OK|DUPLICADO|CONFLICTO|ERROR_VALIDACION, detalle?}]`; reutiliza la lógica de los endpoints anteriores y deja rastro en `cola_sincronizacion` |
-| POST | `/operativo/dispositivos` | operativos | registra la clave pública ECDSA (JWK) del dispositivo |
-| GET | `/operativo/menu?olla_id&semana=YYYY-MM-DD` | ALMACENERO, AUDITOR | `programaciones_menu` + `gramajes_calculados` de la semana |
-| GET | `/operativo/padron?q&olla_id&estado&page&per_page` | ALMACENERO, AUDITOR | **devuelve `dni_enmascarado` (`****1236`), nunca el DNI**; `q` busca nombre o últimos 4 dígitos |
-| GET | `/operativo/auditoria/bitacora?desde&hasta&tipo_evento&entidad&solo_invalidas&page&per_page` | AUDITOR, ADMINISTRADOR | solo lectura sobre `bitacora_auditoria` |
-| GET | `/operativo/auditoria/liquidacion?desde&hasta&olla_id&page&per_page` | AUDITOR, ADMINISTRADOR | guías con `fecha_liquidacion`; incluye `d_fis_pct` |
+- **Probado:** sintaxis de todo `endpoints/` con PHP 8.4. La firma ECDSA de la contrafirma generada con WebCrypto (Node) se verifica correctamente en PHP, incluyendo tildes, barras y decimales en los insumos; datos alterados o de otro usuario se rechazan. El token QR firmado detecta manipulación del payload.
+- **No probado:** ninguna consulta SQL contra MySQL (no hay base local y no se tocó la de Azure). Tampoco el flujo HTTP completo ni el despliegue. Esperen ajustes menores en la primera ejecución real.
+- Nota: el XAMPP de este equipo es PHP **7.4.33**, no 8.0; el código existente (y el nuevo) requiere PHP ≥ 8.0, así que la API local solo corre con otro PHP. Producción usa 8.4.
 
-Forma de las respuestas: `Pagina<T> = {items, total, page, per_page}`; tipos exactos en `src/types/operativo.ts`.
+## Pasos para activarlo (en este orden)
 
-## 3. Cambios de base de datos (`bd/` — propuesta, no aplicada)
+1. **Respaldo** de `bd_operativa_central` (la migración solo agrega columnas, tablas e índices; no borra datos).
+2. Aplicar `bd/5_operativo.sql` y, solo en entornos de prueba, `bd/6_semilla_operativo.sql` (con `aplicar_sql.js` o el cliente MySQL; las sentencias se ejecutan una por una porque tolera "ya aplicado"). Requiere la IP del equipo en el firewall de MySQL.
+3. Crear los operadores (la contraseña no queda en el historial si usas la variable):
+   ```powershell
+   $env:OPERADOR_PASSWORD = '<contraseña de 10+ caracteres>'
+   php endpoints/scripts/crear-operador.php --dni=10000001 --rol=ALMACENERO --nombres="..." --apellidos="..." --email=...
+   ```
+   Repetir para `TRANSPORTISTA` y `AUDITOR`. Después correr la semilla 6 (necesita un almacenero para el menú).
+4. **CORS**: añadir el origen de la web operativa y fijar `QR_TTL_MINUTOS`:
+   ```powershell
+   az webapp config appsettings set -g rg-ollas-prod -n api-ollas-prod --settings "CORS_ORIGIN=https://thankful-ocean-08840ec0f.1.azurestaticapps.net,https://<web-operativa>.azurestaticapps.net" QR_TTL_MINUTOS=720
+   ```
+5. **Desplegar la API**: `cd endpoints; .\scripts\deploy-api.ps1` y luego `.\scripts\verificar-api.ps1`. Probar a mano con una cuenta operativa: login con `plataforma: "operativa"`, `GET /api/operativo/guias`, y emitir/escanear una guía.
+6. En GitHub de la web operativa: variable `VITE_OPERATIVO_MODO=real` y volver a ejecutar el workflow.
 
-Todo en `bd_operativa_central`. Se sugiere un archivo nuevo `bd/5_operativo.sql` (idempotente) en vez de editar `1.sql`.
+## Pendiente (no incluido)
 
-```sql
--- Idempotencia por uuid (hoy ninguna tabla operativa tiene uuid)
-ALTER TABLE guias_despacho ADD COLUMN uuid CHAR(36) NULL UNIQUE AFTER id,
-                           ADD COLUMN observaciones VARCHAR(300) NULL;
-ALTER TABLE transiciones_fsm ADD COLUMN uuid CHAR(36) NULL UNIQUE AFTER id;
-
--- Escaneos: lo que hoy no se puede guardar
-ALTER TABLE escaneos_qr
-  ADD COLUMN uuid CHAR(36) NULL UNIQUE AFTER id,
-  ADD COLUMN nonce VARCHAR(64) NULL,
-  ADD COLUMN escaneado_en DATETIME NULL,
-  ADD COLUMN contrafirma VARCHAR(255) NULL,
-  ADD COLUMN dispositivo_id INT NULL,
-  ADD UNIQUE KEY uq_nonce_tipo (nonce, tipo_escaneo);   -- antirrepetición en servidor
-
--- Claves públicas de los dispositivos (contrafirma ECDSA P-256)
-CREATE TABLE IF NOT EXISTS dispositivos_usuario (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  usuario_id INT NOT NULL,
-  clave_publica_jwk JSON NOT NULL,
-  huella CHAR(64) NOT NULL UNIQUE,         -- SHA-256 de la JWK canónica
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_disp_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
-) ENGINE=InnoDB;
-
--- Recepción por ítem y vínculo ruta↔guía ya existen (items_despacho.cantidad_recepcionada, rutas_transportista).
--- Índices útiles para paginación y filtros
-CREATE INDEX idx_guias_olla_fecha ON guias_despacho (olla_id, fecha_generacion);
-CREATE INDEX idx_bitacora_fecha   ON bitacora_auditoria (timestamp);
-```
-
-**Datos semilla necesarios** (hoy no hay forma de crear estas cuentas por API):
-- Usuarios `ALMACENERO`, `TRANSPORTISTA`, `AUDITOR` (con `password_hash` generado por `password_hash()` bcrypt): script SQL o un comando de consola; no hay endpoint de alta de operadores.
-- Al menos una `ollas_comunes` con `estado_aprobacion='APTA'`, `beneficiarios`, `tablas_midis`, y `programaciones_menu` + `gramajes_calculados` para probar menú y balance.
-- `bitacora_auditoria.firma_hmac` se calcula con `HMAC_SECRET` (el mismo del proyecto; no rotarlo sin plan).
-
-## 4. Decisiones abiertas para el dueño
-
-- Metas de **P_cal** y **E_ins**: no figuran en ningún documento del repositorio; la app las lee de `VITE_META_PCAL` / `VITE_META_EINS` (vacías = sin semáforo).
-- Vida del token: 12 h hoy vs. 15 min en la especificación.
-- Quién calcula `D_fis`/`t_liq` oficiales: la app los muestra, pero el reporte de rendición debería usar el valor del servidor.
+- **Pantalla para liquidar guías.** El endpoint `POST /operativo/guias/{id}/liquidar` existe, pero la web no tiene botón: la vista Liquidación estará vacía hasta que alguien liquide guías (por API o agregando el botón al auditor).
+- **Asignar o cambiar transportista** de una guía ya emitida (hoy solo se asigna al emitir).
+- **Anular una guía** o corregir ítems tras emitirla.
+- **Alta de operadores desde la web** (hoy solo por consola).
+- **Rate limiting** en los endpoints operativos (solo lo tienen login y RENIEC).
+- **Metas de P_cal y E_ins** (`VITE_META_PCAL`, `VITE_META_EINS`): siguen sin definirse en ningún documento.
+- **Vida del token**: 12 h vigentes frente a los 15 min de la especificación; requiere un endpoint de refresh (`SOPORTA_REFRESH` en `src/lib/sesion.ts`).
+- **Pruebas automatizadas** del backend (no hay suite; la verificación hecha fue manual).
+- Rotar la contraseña de `OC_2026` (pendiente desde `TRASPASO.md`) antes de producción real.
