@@ -1,0 +1,20 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/*.{png,jpg,gif,svg,ico,webmanifest}", "/sw.js", "/workbox-*.js", "/robots.txt"]
+  },
+  "responseOverrides": {
+    "404": {
+      "rewrite": "/index.html"
+    }
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(self), geolocation=(), microphone=()"
+  },
+  "routes": [
+    { "route": "/sw.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/index.html", "headers": { "Cache-Control": "no-cache" } }
+  ]
+}
